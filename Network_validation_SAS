@@ -1,0 +1,592 @@
+/******************************************************************************************************/
+/*PROJECT             :QTRLY NETWORK VALIDATION (PROVIDER DATA VALIDATION)*/
+/*AIM                  :This program is used to create an Excel spreadsheet indicating discrepancies for various 
+                     variables for each of the TennCare health plans. Discrepancy variables are created for 
+                     the file clean_diane. The character 'X' is created and represents a discrepancy when a 
+                     value has been updated 
+/*DATASET LOCATION    :X:\CoverKids\Provider Data Validation\<Quarter>\Datasets\ds_After_DBase_Cleanup*/
+/*CREATED BY        :SHAWN GONSALEZ)*/
+/*CREATED ON         :7th NOVEMBER 2017*/
+/*MODIFIED BY          :*/
+/*MODIFIED ON         :*/
+/*REVISED BY          :NONE*/     
+/*REVISED ON          :NA*/
+/******************************************************************************************************/
+
+
+libname prov1 'X:\CoverKids\Provider Data Validation\2018\2nd Quarter 2018\Code - Analyst\ds_For_excel_CK';
+libname prov 'X:\CoverKids\Provider Data Validation\2018\2nd Quarter 2018\Code - Analyst\ds_After_DBase_cleanup';
+
+*TCS data form TC;
+libname prov2 'X:\EQRO\Provider Data Validation\2018\2nd Quarter 2018\Code - Analyst\ds_For_excel_TennCare';
+
+%let qtr=2Q2018;
+%let qtr2=2nd Quarter 2018;
+
+
+PROC CONTENTS DATA = prov.clean_&qtr;
+RUN;
+
+PROC SORT DATA = prov.clean_&qtr OUT= prov1.clean2;
+    BY record_number;
+RUN;
+/*511*/
+
+* rename some vars;
+DATA prov1.clean2 ;
+    SET  prov1.clean2;
+    MCC_Name = mcc_description;
+/*    City_updated = cityup_dated;*/
+RUN;
+PROC SORT DATa=prov1.clean2 ;
+    BY MCC_Name;
+RUN;
+
+
+PROC CONTENTS DATA = prov1.clean2;
+RUN; 
+
+proc freq data = prov1.clean2;
+    tables mcc_name;
+run;
+
+* Create discrepancy indicator for invalid phone;
+
+proc freq data =  prov1.clean2;
+    tables ActivewithMCO;
+run;
+proc freq data = prov1.clean2;
+    tables couldnotcontact;
+run;
+proc freq data = prov1.clean2;
+    tables specialty_updated*service_code/ out=a;
+    by mcc_name;
+run;
+
+data prov1.clean3;
+    set prov1.clean2;
+    if phone ne ' ' and phone_updated = 'xxxxxxxxxx' then Invalid_Phone = 'X';
+        else Invalid_Phone = ' ';
+
+    if couldnotcontact = '0' and phone ne ' ' and phone_updated = ' ' and activewithmco = '0'
+        then Inactive_Contract = 'X';
+
+    if couldnotcontact = '-1' and phone ne ' ' and phone_updated = ' ' then Refused_to_Participate = 'Yes';
+        else Refused_to_Participate = 'No';
+
+    if address_updated = ' ' then address_updatedtwo = address;
+    if upcase(address) ne upcase(address_updatedtwo) then Address_Modified = 'X';
+        else Address_Modified = ' ';
+
+    if address2_updated = ' ' then address2_updatedtwo = address2;
+        else address2_updatedtwo = address2_updated;
+    if upcase(address2) ne upcase(address2_updatedtwo) then Address2_Modified = 'X';
+        else Address2_Modified = ' ';
+    
+    if city_updated = ' ' then city_updated2 = city;
+    if upcase(city) ne upcase(city_updated2) then City_Modified = 'X';
+        else City_Modified = ' ';
+
+    if state_updated = ' ' then state_updated2 = state;
+    if upcase(state) ne upcase(state_updated2) then State_Modified = 'X';
+        else State_Modified = ' ';
+
+    if zip_updated = ' ' then zip_updated2 = zip;
+    if upcase(zip) ne upcase(zip_updated2) then Zip_Modified = 'X';
+        else Zip_Modified = ' ';
+
+    if specialty_updated = ' ' then specialty_updated2 = specialty;
+    if upcase(specialty) ne upcase(specialty_updated2) then specialty_Modified = 'X';
+        else specialty_Modified = ' ';
+
+    if new_patients_updated = ' ' then new_patients_updated2 = new_patients;
+    if upcase(new_patients) ne upcase(new_patients_updated2) then Panel_Status = 'X';
+        else Panel_Status = ' ';
+run;
+
+proc freq data = prov1.clean3;
+    tables Invalid_Phone/missing;
+    tables Inactive_Contract/missing;
+    tables Refused_to_Participate/missing;
+    tables Address_Modified/missing;
+    tables Address2_Modified/missing;
+    tables City_Modified/missing;
+    tables State_Modified/missing;
+    tables Zip_Modified/missing;
+    tables specialty_Modified/missing;
+    tables Panel_Status/missing;
+run;
+
+
+* Code for Children's Services ;
+proc freq data = prov1.clean3;
+    tables mco/missing;
+run;
+
+/*VALUES
+updated_18_yrs = '2' = NO
+updated_18_yrs = '1' = YES*/
+
+data prov1.clean4;
+    set prov1.clean3;
+
+if      updated_18_yrs = '1' then Childrens_Services = ' ';
+else if  updated_18_yrs = '2' then Childrens_Services = 'X';
+else Childrens_Services = ' ';
+RUN;
+
+proc freq data = prov1.clean4;
+    tables Childrens_Services/ missing;
+run;
+proc sort data = prov1.clean4;
+        by mcc_name;
+run;
+proc freq data = prov1.clean4;
+    tables updated_18_yrs childrens_services*mcC_name;
+run;
+
+* Create PC Services Modified Variable;
+*********************Primary Care Services***************;
+data prov1.clean5;
+    set prov1.clean4;
+        if pc_services_updated = ' ' then pc_services_updated = pc_services;
+        if upcase(pc_services) ne upcase(pc_services_updated) then PC_Services_Modified = 'X';
+        else PC_Services_Modified = ' ';
+run; 
+proc freq data = prov1.clean5;
+    tables PC_Services_Modified;
+run;     
+
+*********************Prenatal Services***************;
+*According to the work plan, the prenatal care variable is not evaluated for the DBM ;
+data prov1.clean6;
+    set prov1.clean5;
+        if mcc_name = ('CoverKids BlueCross BlueShield') then do;
+            if provides_prenatal_updated = '' then provides_prenatal_updated = provides_prenatal;
+            if upcase(provides_prenatal) ne upcase(provides_prenatal_updated) then Provides_Prenatal_Modified = 'X';
+            else Provides_Prenatal_Modified = ' ';
+        end;
+run;
+title 'Prenatal Results';
+proc freq data = prov1.clean6;
+tables Provides_Prenatal_Modified;
+run;
+
+
+*=============================================================================================;
+*=============================================================================================:
+
+********************************Urgent and Routine Services*********************************;
+proc freq data = prov1.clean6;
+    tables Appt3WeeksRoutine/Missing;
+    tables Appt48HoursUrgent/Missing;
+run;
+data prov1.clean7;
+    set prov1.clean6;
+        if Appt3WeeksRoutine = 2 then Routine_Care_Services = 'X';
+            else Routine_Care_Services = ' ';
+        if Appt48HoursUrgent = 2 then Urgent_Care_Services = 'X';
+            else Urgent_Care_Services = ' ';  
+run;
+proc freq data = prov1.clean7;
+    tables Routine_Care_Services/Missing;
+    tables Urgent_Care_Services/Missing;
+run;
+
+proc contents data=prov1.clean7 ;
+run;
+
+
+proc sql;
+create table prov1.cleanimport_1 as 
+select      
+
+            mcc_name,
+            coverkids_id, /*TENNCARE_ID,*/
+            firstName, lastName, 
+            address, address2, city, state, zip, 
+            phone,
+            specialty, provider_type, 
+            provides_prenatal,
+            new_patients,
+            pc_services,
+                    BEGIN_DATE, 
+            end_Dt,
+            business_ind, 
+                    BHO_PROVIDER_SERVICE_CODE,                            
+            refused_to_participate,
+            inactive_contract,
+            address_modified, address2_modified, city_modified, state_modified, zip_modified,
+            invalid_phone,
+            specialty_modified,
+            provides_prenatal_modified,
+            panel_status,
+            pc_services_modified,
+            childrens_services, 
+            routine_care_services,urgent_care_services,
+            contactperson,
+            contacttitle,
+            comments,
+
+                CNTYNAME,
+                DESCRIPTION,
+                MCO,
+                SSN,
+                EIN,
+                PLAN_INDICATOR,
+                TAXONOMY,
+                PAT_AGE_START
+
+from prov1.clean7 
+order by mcc_name;
+quit;
+
+proc contents data=prov1.cleanimport_1 position;
+run;
+
+/***********COVERKIDS REQUESTED THE EXCEL SHEET LIKE TENNCARE FORMAT FROM QUARTER 2 , 2013 ONWARDS************/
+DATA prov1.cleanimport_2;
+    SET prov1.cleanimport_1;
+        format 
+        
+        MCC_Action_Taken $255.
+        System_Action $255.
+        Date_Office_Contacted mmddyy10.
+        Name_and_Title_Office_Staff $255.
+        Correct_Prior_Receiving_Survey $3. 
+        Data_Element_Correct  $100.;    
+                                        
+    
+    MCC_Action_Taken='';
+    System_Action='';
+    Date_Office_Contacted='';
+    Name_and_Title_Office_Staff='';
+    Correct_Prior_Receiving_Survey="No"; /*tenncare needs "Correct_Prior_to_Receiving_Survey" with TO but since its more than 32 characters, it will have to be added mannualy */
+    Data_Element_Correct='';
+
+    TENNCARE_ID=CoverKids_ID; 
+    OLDEST_AGE= '';
+
+/*in fourth qaurter 2014, TC wanted DQ's coverKids id to be inserted in TennCare id column in the excel submitted
+    and add oldest age
+    and rename children services for both <21 and <18*/
+
+
+    label 
+    
+    MCC_Action_Taken='MCC_Action_Taken_(Required)'
+    System_Action='System_Action_(Not_Required)'
+    Date_Office_Contacted='Date_Office_Contacted_(Required)'
+    Name_and_Title_Office_Staff='Name_and_Title_Office_Staff_(Required)'
+    Correct_Prior_Receiving_Survey='Correct_Prior_To_Receiving_Survey'
+    Data_Element_Correct='Data_Element_Correct'
+    ;
+
+
+/*RENAME FEW VARS*/
+    SVR_ADDR_LN1        =    ADDRESS    ;
+    SVR_ADDR_LN2        =    ADDRESS2    ;
+    BUSINESS_INDICATOR    =    BUSINESS_IND    ;
+    SVR_ADDR_CITY        =    CITY    ;
+    SVR_PROV_CNTY        =    CNTYNAME    ;
+    PROVIDER_SPECIALTY_CODE_DESCRIPT    =    DESCRIPTION    ;
+    END_DATE            =    END_DT    ;
+    PROV_FIRSTNAME        =    FIRSTNAME    ;
+    PROV_LASTNAME        =    LASTNAME    ;
+    MCC                    =    MCO    ;
+    NEW_PAT                =    NEW_PATIENTS    ;
+    SVR_PHONE_NUMBER    =    PHONE    ;
+    PROV_PRENATAL        =    PROVIDES_PRENATAL    ;
+    SPECIALTY_CODE        =    SPECIALTY    ;
+    SSN_NUMBER            =    SSN    ;
+    SVR_ADDR_STATE        =    STATE    ;
+    SVR_ADDR_ZIP        =    ZIP    ;
+    SERVICE_CODE        =   BHO_PROVIDER_SERVICE_CODE;
+    YOUNGEST_AGE        =    PAT_AGE_START;
+
+
+label
+    ADDRESS            =    "SVR_ADDR_LN1"
+    ADDRESS2        =    "SVR_ADDR_LN2"
+    BUSINESS_IND    =    "BUSINESS_INDICATOR"
+    CITY            =    "SVR_ADDR_CITY"
+    CNTYNAME        =    "SVR_PROV_CNTY"
+    DESCRIPTION        =    "PROVIDER_SPECIALTY_CODE_DESCRIPT"
+    END_DT            =    "END_DATE"
+    FIRSTNAME        =    "PROV_FIRSTNAME"
+    LASTNAME        =    "PROV_LASTNAME"
+    MCO                =    "MCC"
+    NEW_PATIENTS    =    "NEW_PAT"
+    PHONE            =    "SVR_PHONE_NUMBER"
+    PROVIDES_PRENATAL    =    "PROV_PRENATAL"
+    SPECIALTY        =    "SPECIALTY_CODE"
+    SSN                =    "SSN_NUMBER"
+    STATE            =    "SVR_ADDR_STATE"
+    ZIP                =    "SVR_ADDR_ZIP"
+    BHO_PROVIDER_SERVICE_CODE="SERVICE_CODE"
+    PAT_AGE_START    =    "YOUNGEST_AGE"
+;
+run;
+
+PROC CONTENTS DATA=prov1.cleanimport_2;
+RUN;
+
+
+proc sql;
+create table prov1.cleanimport_3 as 
+select      
+            MCC_Action_Taken,
+            System_Action,
+            Date_Office_Contacted,
+            Name_and_Title_Office_Staff,
+            Correct_Prior_Receiving_Survey, 
+            Data_Element_Correct,            
+            
+
+            mcc_name,
+/*            COVERKIDS_ID, */
+            TENNCARE_ID,
+            firstName, lastName, 
+            address, address2, city, state, zip, 
+            phone,
+            specialty, provider_type, taxonomy,
+            provides_prenatal,
+            new_patients,
+            pc_services,
+            begin_date, end_date,
+            business_ind, service_code, 
+            PLAN_INDICATOR  ,YOUNGEST_AGE   ,               
+            ein, 
+                        
+            refused_to_participate,
+            inactive_contract,
+            address_modified, address2_modified, city_modified, state_modified, zip_modified,
+            invalid_phone,
+            specialty_modified,
+            provides_prenatal_modified,
+            panel_status,
+            pc_services_modified,
+
+            childrens_services, 
+
+            routine_care_services,urgent_care_services,
+            contactperson,
+            contacttitle,
+            comments
+
+from prov1.cleanimport_2
+order by mcc_name;
+quit;
+
+DATA  prov1.cleanimport_4;
+    SET  prov1.cleanimport_3;
+/*    IF mcc_name = 'CoverKids BlueCross BlueShield' THEN MCC_NAME= 'CoverKids BlueCross BlueShield';*/
+    IF mcc_name = 'DentaQuest'        THEN MCC_NAME= 'CoverKids DentaQuest';
+RUN;
+
+* Create SAS data set for each of the providers;
+;
+
+%macro ds (ds1, label);
+data prov1.&ds1;
+    set prov1.cleanimport_4;
+        where  mcc_name = "&label";
+run;
+%mend ds;
+
+%ds (cleanBlue,      CoverKids BlueCross BlueShield);
+%ds (cleanDentaQuest,  CoverKids DentaQuest);
+
+
+* Export data files to Excel by Provider Health Plan;
+
+%macro exp (ds2, sheet);
+proc export data = prov1.&ds2
+outfile = "X:\CoverKids\Provider Data Validation\2018\&qtr2.\Report\ExportData_CK_2Q2018.xls"
+    DBMS = EXCELcs
+    replace;
+    sheet = "&sheet";
+run;
+%mend exp;
+
+%exp (cleanBlue,        BCBS);
+%exp (cleanDentaQuest, DentaQuest);
+
+/*****************/
+
+/*IMPORTANT*/
+
+/*****************/
+
+/*name the columns or add columns in DQ to match TCS*/
+
+
+*===========================================================================================;
+*===========================================================================================;
+
+
+/*************************************  END  *****************************************************************/
+* Create SAS data set for each of the providers;
+
+%macro ds (ds1, label);
+data prov1.&ds1;
+retain
+MCC_Action_Taken        
+System_Action                
+Date_Office_Contacted     
+Name_and_Title_Office_Staff   
+Correct_Prior_Receiving_Survey       
+Data_Element_Correct         
+MCC_Name                     
+TENNCARE_ID                  
+FIRSTNAME                    
+LASTNAME                     
+ADDRESS                      
+ADDRESS2                     
+CITY                         
+STATE                        
+ZIP                          
+PHONE                        
+SPECIALTY                    
+PROVIDER_TYPE                
+TAXONOMY                     
+PROVIDES_PRENATAL            
+NEW_PATIENTS                 
+PC_SERVICES                  
+BEGIN_DATE                   
+END_DATE                     
+BUSINESS_IND                 
+SERVICE_CODE                 
+PLAN_INDICATOR               
+YOUNGEST_AGE 
+OLDEST_AGE 
+EIN                          
+Refused_to_Participate       
+Inactive_Contract            
+Address_Modified             
+Address2_Modified            
+City_Modified                
+State_Modified               
+Zip_Modified                 
+Invalid_Phone                
+specialty_Modified           
+Provides_Prenatal_Modified   
+Panel_Status                 
+PC_Services_Modified         
+CK_childrens_services_lt19
+childrens_services_lt21
+adult_services 
+Routine_Care_Services        
+Urgent_Care_Services         
+ContactPerson        
+ContactTitle             
+comments  ; 
+    set prov2.Cleantenncares;
+/*********************************************************************************************************************/
+            
+*OLDEST_AGE='NA'; 
+*CK_childrens_services_lt19=childrens_services;
+childrens_services_lt21='NA';
+adult_services='NA'; 
+        where  mcc_name = "&label";
+run;
+%mend ds;
+
+%ds (cleanBlue,      CoverKids BlueCross BlueShield);
+
+*change MCC_name;
+data prov1.cleanblue1;
+set prov1.cleanblue;
+/*if mcc_name='CoverKids BlueCross BlueShield' then mcc_name='CoverKids BlueCross BlueShield';*/
+run;
+
+%macro ds1 (ds1, label);
+data prov1.&ds1;
+retain
+MCC_Action_Taken        
+System_Action                
+Date_Office_Contacted     
+Name_and_Title_Office_Staff   
+Correct_Prior_Receiving_Survey       
+Data_Element_Correct         
+MCC_Name                     
+TENNCARE_ID                  
+FIRSTNAME                    
+LASTNAME                     
+ADDRESS                      
+ADDRESS2                     
+CITY                         
+STATE                        
+ZIP                          
+PHONE                        
+SPECIALTY                    
+PROVIDER_TYPE                
+TAXONOMY                     
+PROVIDES_PRENATAL            
+NEW_PATIENTS                 
+PC_SERVICES                  
+BEGIN_DATE                   
+END_DATE                     
+BUSINESS_IND                 
+SERVICE_CODE                 
+PLAN_INDICATOR               
+YOUNGEST_AGE 
+OLDEST_AGE 
+EIN                          
+Refused_to_Participate       
+Inactive_Contract            
+Address_Modified             
+Address2_Modified            
+City_Modified                
+State_Modified               
+Zip_Modified                 
+Invalid_Phone                
+specialty_Modified           
+Provides_Prenatal_Modified   
+Panel_Status                 
+PC_Services_Modified         
+CK_childrens_services_lt19
+childrens_services_lt21
+adult_services 
+Routine_Care_Services        
+Urgent_Care_Services         
+ContactPerson        
+ContactTitle             
+comments  ; 
+    set prov1.cleanimport_4 (drop=childrens_services);
+            
+OLDEST_AGE='NA'; 
+CK_childrens_services_lt19=' ';
+childrens_services_lt21='NA';
+adult_services='NA'; 
+        where  mcc_name = "&label";
+run;
+%mend ds1;
+%ds1 (cleanDentaQuest,  CoverKids DentaQuest);
+
+* Export data files to Excel by Provider Health Plan;
+
+%macro exp (ds2, sheet);
+proc export data = prov1.&ds2
+outfile = "X:\CoverKids\Provider Data Validation\2018\&qtr2.\Report\ExportData_CK_&qtr..xls"
+    DBMS = EXCEL
+    replace;
+    sheet = "&sheet";
+run;
+%mend exp;
+
+
+%exp (cleanBlue1,        BCBS);
+%exp (cleanDentaQuest, DentaQuest);
+
+/*****************/
+/*IMPORTANT*/
+/*****************/
+/*name the columns or add columns in DQ to match TCS*/
+
+
+*===========================================================================================;
+*===========================================================================================;
+
+/*************************************  END  *****************************************************************/
+
